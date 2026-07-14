@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>hypnos · stock</title>
+<link rel="icon" href="favicon.png">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+
+/* ── password overlay ─────────────────────────────────────────── */
+#pw-overlay {
+  position:fixed; inset:0; background:var(--cap); z-index:9999;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:32px;
+}
+#pw-overlay img { height:36px; opacity:.9; }
+#pw-form { display:flex; flex-direction:column; align-items:center; gap:12px; }
+#pw-input {
+  background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.2);
+  color:#fff; padding:10px 20px; border-radius:24px; font-family:inherit;
+  font-size:14px; width:240px; outline:none; text-align:center; letter-spacing:.5px;
+}
+#pw-input::placeholder { color:rgba(255,255,255,.3); }
+#pw-input:focus { border-color:rgba(255,255,255,.5); }
+#pw-btn {
+  background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.25);
+  color:#fff; padding:8px 28px; border-radius:24px; font-family:inherit;
+  font-size:12px; cursor:pointer; letter-spacing:.4px;
+}
+#pw-btn:hover { background:rgba(255,255,255,.2); }
+#pw-err { font-size:11px; color:#c4796a; min-height:16px; }
+* { box-sizing:border-box; margin:0; padding:0; }
+:root { --w:#fff; --bl:#EAE6E3; --bd:#B3AAA1; --g:#BDBAB7; --cap:#28211C; }
+body { font-family:'DM Sans',Arial,sans-serif; background:var(--bl); color:var(--cap); font-size:13px; }
+
+/* max-width wrapper */
+.wrap { max-width:1300px; margin:0 auto; padding:0 32px; }
+
+/* header */
+.hdr { background:var(--cap); }
+.hdr .wrap { display:flex; align-items:center; gap:16px; padding-top:13px; padding-bottom:13px; }
+.logo-img { height:28px; display:block; }
+.sub { font-size:10px; color:var(--bd); letter-spacing:.8px; text-transform:uppercase; margin-top:1px; }
+.hdr-r { margin-left:auto; display:flex; align-items:center; gap:10px; font-size:11px; color:var(--bd); }
+.btn { background:none; border:1px solid var(--bd); color:var(--bd); padding:3px 12px;
+       border-radius:20px; font-family:inherit; font-size:11px; cursor:pointer; }
+.btn:hover { border-color:#fff; color:#fff; }
+
+/* tabs */
+.nav { padding:0; }
+.tabs { display:flex; border-bottom:1px solid var(--g); gap:2px; }
+.tab { padding:7px 16px; font-size:12px; color:var(--bd); cursor:pointer; border:none;
+       border-bottom:2px solid transparent; margin-bottom:-1px; background:none;
+       font-family:inherit; white-space:nowrap; }
+.tab.on { color:var(--cap); border-bottom-color:var(--cap); font-weight:500; }
+.tab:hover:not(.on) { color:var(--cap); }
+
+/* content */
+.cnt { padding-bottom:48px; }
+.panel { display:none; }
+.panel.on { display:block; }
+
+/* toolbar */
+.tb { display:flex; align-items:center; gap:8px; margin-bottom:10px; flex-wrap:wrap; }
+.si { background:var(--w); border:1px solid var(--g); border-radius:6px;
+      padding:5px 12px; font-family:inherit; font-size:12px; width:220px; outline:none; }
+.si:focus { border-color:var(--bd); }
+.rc { font-size:11px; color:var(--bd); }
+
+/* period */
+.pp { display:flex; gap:4px; flex-wrap:wrap; }
+.pb { background:var(--w); border:1px solid var(--g); color:var(--bd); padding:3px 10px;
+      border-radius:20px; font-size:11px; font-family:inherit; cursor:pointer; }
+.pb.on { background:var(--cap); border-color:var(--cap); color:#fff; }
+.pb:hover:not(.on) { color:var(--cap); border-color:var(--cap); }
+
+/* table */
+.tw { overflow-x:auto; }
+table { width:100%; border-collapse:collapse; }
+th { text-align:left; font-size:10px; font-weight:500; color:var(--bd); text-transform:uppercase;
+     letter-spacing:.4px; padding:6px 12px 6px 0; border-bottom:1px solid var(--g); white-space:nowrap; }
+th.r { text-align:right; }
+td { padding:5px 12px 5px 0; border-bottom:1px solid rgba(179,170,161,.25); vertical-align:middle; }
+td.r { text-align:right; font-variant-numeric:tabular-nums; }
+td.sku { font-family:monospace; font-size:11px; color:#6b5f59; font-weight:500; }
+td.cat { font-size:11px; color:#7a6f69; min-width:90px; }
+tr.dr:hover td { background:rgba(255,255,255,.5); }
+
+/* badges */
+.bx { display:inline-block; font-size:10px; font-weight:500; padding:1px 7px; border-radius:10px; line-height:1.6; }
+.b-out { background:#fee2e2; color:#b91c1c; }
+.b-in  { background:#dcfce7; color:#15803d; }
+.b-sin { background:var(--cap); color:#fff; }
+.b-ped { background:#ede9fe; color:#6d28d9; }
+.b-syn { background:#f1f5f9; color:#64748b; }
+.b-adj { background:#fef9c3; color:#854d0e; }
+
+/* diff colors */
+.pos { color:#15803d; font-weight:600; }
+.neg { color:#b91c1c; font-weight:600; }
+
+/* state */
+.st { padding:40px; text-align:center; color:var(--bd); }
+.sp { display:inline-block; width:13px; height:13px; border:2px solid var(--g);
+      border-top-color:var(--cap); border-radius:50%; animation:spin .7s linear infinite;
+      vertical-align:middle; margin-right:6px; }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* expand */
+.xbtn { background:none; border:none; cursor:pointer; font-size:11px; color:var(--bd);
+         padding:2px 6px; border-radius:4px; white-space:nowrap; }
+.xbtn:hover { background:var(--bl); color:var(--cap); }
+.xrow { display:none; }
+.xrow.on { display:table-row; }
+.xi { background:var(--w); border-radius:6px; padding:8px 12px; margin:3px 0; }
+.xi table { font-size:11px; }
+.xi th { font-size:10px; padding:4px 10px 4px 0; }
+.xi td { padding:4px 10px 4px 0; border-bottom:1px solid var(--bl); }
+
+/* cat group header */
+tr.gh td { background:var(--bl); padding:8px 0 4px; font-size:10px; font-weight:600;
+            color:var(--bd); text-transform:uppercase; letter-spacing:.6px;
+            border-bottom:1px solid var(--g); }
+</style>
+</head>
+<body>
+
+<!-- password overlay -->
+<div id="pw-overlay">
+  <img src="logo.png" alt="hypnos">
+  <div id="pw-form">
+    <input id="pw-input" type="password" placeholder="contraseña" autocomplete="off">
+    <button id="pw-btn" onclick="checkPw()">entrar</button>
+    <span id="pw-err"></span>
+  </div>
+</div>
+
+<div class="hdr">
+  <div class="wrap">
+    <img src="logo.png" alt="hypnos" class="logo-img">
+    <span class="sub">operaciones · stock</span>
+    <div class="hdr-r">
+      <span id="hdr-fecha"></span>
+      <button class="btn" onclick="fetchData()">↺ actualizar</button>
+    </div>
+  </div>
+</div>
+
+<div class="nav">
+  <div class="wrap" style="padding-top:16px;padding-bottom:0">
+  <div class="tabs">
+    <button class="tab on" data-tab="general">stock actual</button>
+    <button class="tab" data-tab="quiebres">quiebres</button>
+    <button class="tab" data-tab="cambios">cambios vs ayer</button>
+    <button class="tab" data-tab="movimientos">movimientos</button>
+  </div>
+  </div>
+</div>
+
+<div class="cnt">
+<div class="wrap" style="padding-top:16px">
+
+  <div class="panel on" id="panel-general">
+    <div class="tb">
+      <input class="si" id="q-general" placeholder="buscar SKU o producto…">
+      <span class="rc" id="rc-general"></span>
+    </div>
+    <div class="tw">
+      <div class="st" id="msg-general"><span class="sp"></span>cargando...</div>
+      <table id="tbl-general" style="display:none">
+        <thead><tr>
+          <th style="width:110px">Categoría</th>
+          <th style="width:90px">SKU</th>
+          <th>Producto</th>
+          <th class="r" style="width:70px">Stock</th>
+          <th style="width:110px"></th>
+        </tr></thead>
+        <tbody id="tb-general"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-quiebres">
+    <div class="tb">
+      <input class="si" id="q-quiebres" placeholder="buscar…">
+      <span class="rc" id="rc-quiebres"></span>
+    </div>
+    <div class="tw">
+      <div class="st" id="msg-quiebres"><span class="sp"></span>cargando...</div>
+      <table id="tbl-quiebres" style="display:none">
+        <thead><tr>
+          <th style="width:110px">Categoría</th>
+          <th style="width:90px">SKU</th>
+          <th>Producto</th>
+          <th style="width:110px">Quiebre</th>
+          <th class="r" style="width:70px">Antes</th>
+          <th class="r" style="width:70px">Ahora</th>
+        </tr></thead>
+        <tbody id="tb-quiebres"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-cambios">
+    <div class="tb">
+      <input class="si" id="q-cambios" placeholder="buscar…">
+      <span class="rc" id="rc-cambios"></span>
+    </div>
+    <div class="tw">
+      <div class="st" id="msg-cambios"><span class="sp"></span>cargando...</div>
+      <table id="tbl-cambios" style="display:none">
+        <thead><tr>
+          <th style="width:110px">Categoría</th>
+          <th style="width:90px">SKU</th>
+          <th>Producto</th>
+          <th class="r" style="width:70px">Ayer</th>
+          <th class="r" style="width:70px">Hoy</th>
+          <th class="r" style="width:80px">Cambio</th>
+        </tr></thead>
+        <tbody id="tb-cambios"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-movimientos">
+    <div class="tb">
+      <div class="pp" id="pp">
+        <button class="pb" data-d="7">7d</button>
+        <button class="pb on" data-d="30">30d</button>
+        <button class="pb" data-d="60">60d</button>
+        <button class="pb" data-d="90">90d</button>
+        <button class="pb" data-d="365">365d</button>
+        <button class="pb" data-d="0">histórico</button>
+      </div>
+      <input class="si" id="q-movimientos" placeholder="buscar SKU, producto o tipo…">
+      <span class="rc" id="rc-movimientos"></span>
+    </div>
+    <div class="tw">
+      <div class="st" id="msg-movimientos"><span class="sp"></span>cargando...</div>
+      <table id="tbl-movimientos" style="display:none">
+        <thead><tr>
+          <th style="width:90px">Fecha</th>
+          <th style="width:70px">Hora</th>
+          <th style="width:90px">SKU</th>
+          <th>Producto</th>
+          <th style="width:70px">Tipo</th>
+          <th style="width:80px">Razón</th>
+          <th class="r" style="width:75px">Cantidad</th>
+          <th class="r" style="width:75px">Balance</th>
+        </tr></thead>
+        <tbody id="tb-movimientos"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<script>
+// ── auth ──────────────────────────────────────────────────────
+const PW = 'HypnosOp2026';
+const ov = document.getElementById('pw-overlay');
+const pi = document.getElementById('pw-input');
+
+function checkPw() {
+  if (pi.value === PW) {
+    sessionStorage.setItem('hx_auth', '1');
+    ov.style.display = 'none';
+  } else {
+    document.getElementById('pw-err').textContent = 'clave incorrecta';
+    pi.value = '';
+    pi.focus();
+    setTimeout(() => document.getElementById('pw-err').textContent = '', 2000);
+  }
+}
+pi.addEventListener('keydown', e => { if (e.key === 'Enter') checkPw(); });
+
+if (sessionStorage.getItem('hx_auth') === '1') {
+  ov.style.display = 'none';
+} else {
+  setTimeout(() => pi.focus(), 100);
+}
+
+// ── dashboard ─────────────────────────────────────────────────
+const GAS = 'https://script.google.com/macros/s/AKfycbyLaFW1WW3pcVy8jtB32_vR8GFsoytqL3qERMYj8ZNF3DeVnt1GZPu9_wg_5aZVnQow/exec';
+let D = null, days = 30;
+
+const esc = s => String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const $ = id => document.getElementById(id);
+
+function setMsg(id, html) {
+  $('msg-'+id).innerHTML = html; $('msg-'+id).style.display='';
+  const t=$('tbl-'+id); if(t) t.style.display='none';
+}
+function showTbl(id) {
+  $('msg-'+id).style.display='none'; $('tbl-'+id).style.display='';
+}
+function setRc(id, n, tot) {
+  $('rc-'+id).textContent = n===tot ? `${tot}` : `${n} / ${tot}`;
+}
+function reasonBadge(r) {
+  return r==='pedido'?'b-ped': r==='autosync'?'b-syn':'b-adj';
+}
+
+// tabs
+document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
+  document.querySelectorAll('.panel').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');
+  $('panel-'+b.dataset.tab).classList.add('on');
+  if (D) render(b.dataset.tab, $('q-'+b.dataset.tab)?.value||'');
+}));
+
+// search
+['general','quiebres','cambios','movimientos'].forEach(id => {
+  $('q-'+id)?.addEventListener('input', e => { if(D) render(id, e.target.value); });
+});
+
+// period
+document.querySelectorAll('.pb').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.pb').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');
+  days = parseInt(b.dataset.d);
+  fetchData();
+}));
+
+// expand
+function toggleX(sku) {
+  const row = $('xr-'+sku); if(!row) return;
+  const open = row.classList.toggle('on');
+  $('xb-'+sku).textContent = open ? '▲ ocultar' : '▼ ver movimientos';
+}
+
+// fetch
+function fetchData() {
+  ['general','quiebres','cambios','movimientos'].forEach(id =>
+    setMsg(id, '<span class="sp"></span>cargando...'));
+  fetch(`${GAS}?days=${days}`)
+    .then(r=>r.json())
+    .then(data => {
+      D = data;
+      $('hdr-fecha').textContent = data.fecha || '';
+      ['general','quiebres','cambios','movimientos'].forEach(t =>
+        render(t, $('q-'+t)?.value||''));
+    })
+    .catch(() => ['general','quiebres','cambios','movimientos'].forEach(id =>
+      setMsg(id, 'error al cargar datos')));
+}
+
+// render
+function render(tab, q) {
+  q = (q||'').toLowerCase().trim();
+
+  if (tab === 'general') {
+    const rows = D.snapshot.filter(r =>
+      !q || r.sku.toLowerCase().includes(q) || r.name.toLowerCase().includes(q) ||
+      (r.cat||'').toLowerCase().includes(q));
+    setRc('general', rows.length, D.snapshot.length);
+    if (!rows.length) { setMsg('general', q?'sin resultados':'sin datos'); return; }
+    showTbl('general');
+    let lastCat = null;
+    $('tb-general').innerHTML = rows.map(r => {
+      const catRow = r.cat !== lastCat
+        ? `<tr class="gh"><td colspan="5" style="padding-left:0">${esc(lastCat=r.cat)||'sin categoría'}</td></tr>` : '';
+      const movs = D.movBySku?.[r.sku] || [];
+      const inner = movs.length
+        ? `<table><thead><tr><th>Fecha</th><th>Hora</th><th>Tipo</th><th>Razón</th><th class="r">Cant.</th><th class="r">Balance</th></tr></thead><tbody>`
+          + movs.map(m=>`<tr>
+              <td>${esc(m.fecha)}</td><td>${esc(m.hora)}</td>
+              <td><span class="bx ${m.tipo==='entrada'?'b-in':'b-out'}">${esc(m.tipo)}</span></td>
+              <td><span class="bx ${reasonBadge(m.reason)}">${esc(m.reason)}</span></td>
+              <td class="r ${m.cantidad<0?'neg':'pos'}">${m.cantidad>0?'+'+m.cantidad:m.cantidad}</td>
+              <td class="r">${m.balance}</td></tr>`).join('')
+          + `</tbody></table>`
+        : `<span style="color:var(--bd);font-size:11px">sin movimientos en el período</span>`;
+
+      return catRow + `<tr class="dr">
+        <td class="cat">${esc(r.subcat||r.cat||'')}</td>
+        <td class="sku">${esc(r.sku)}</td>
+        <td>${esc(r.name)}</td>
+        <td class="r" style="font-weight:500${r.stock<=0?';color:#b91c1c':''}">${r.stock}</td>
+        <td><button class="xbtn" id="xb-${esc(r.sku)}" onclick="toggleX('${esc(r.sku)}')">▼ ver movimientos</button></td>
+      </tr>
+      <tr class="xrow" id="xr-${esc(r.sku)}">
+        <td colspan="5"><div class="xi">${inner}</div></td>
+      </tr>`;
+    }).join('');
+    return;
+  }
+
+  if (tab === 'quiebres') {
+    const rows = D.quiebres.filter(r =>
+      !q || r.sku.toLowerCase().includes(q) || r.name.toLowerCase().includes(q));
+    setRc('quiebres', rows.length, D.quiebres.length);
+    if (!rows.length) { setMsg('quiebres', q?'sin resultados':'sin quiebres'); return; }
+    showTbl('quiebres');
+    $('tb-quiebres').innerHTML = rows.map(r => `<tr class="dr">
+      <td class="cat">${esc(r.subcat||r.cat||'')}</td>
+      <td class="sku">${esc(r.sku)}</td>
+      <td>${esc(r.name)}</td>
+      <td style="font-size:12px;color:var(--bd)">${esc(r.fechaQuiebre||'—')}</td>
+      <td class="r" style="color:var(--bd)">${r.stockAntesQuiebre??'—'}</td>
+      <td class="r"><span class="bx b-sin">0</span></td>
+    </tr>`).join('');
+    return;
+  }
+
+  if (tab === 'cambios') {
+    const rows = D.cambios.filter(r =>
+      !q || r.sku.toLowerCase().includes(q) || r.name.toLowerCase().includes(q));
+    setRc('cambios', rows.length, D.cambios.length);
+    if (!rows.length) { setMsg('cambios', q?'sin resultados':`sin cambios vs ${D.fechaAnterior||'ayer'}`); return; }
+    showTbl('cambios');
+    $('tb-cambios').innerHTML = rows.map(r => {
+      const cls = r.diff>0?'pos':'neg';
+      return `<tr class="dr">
+        <td class="cat">${esc(r.subcat||r.cat||'')}</td>
+        <td class="sku">${esc(r.sku)}</td>
+        <td>${esc(r.name)}</td>
+        <td class="r" style="color:var(--bd)">${r.prev}</td>
+        <td class="r" style="font-weight:500">${r.stock}</td>
+        <td class="r ${cls}">${r.diff>0?'+':''}${r.diff}</td>
+      </tr>`;
+    }).join('');
+    return;
+  }
+
+  if (tab === 'movimientos') {
+    const rows = D.movimientos.filter(r =>
+      !q || r.sku.toLowerCase().includes(q) || (r.name||'').toLowerCase().includes(q) ||
+      r.tipo.toLowerCase().includes(q) || (r.reason||'').toLowerCase().includes(q));
+    setRc('movimientos', rows.length, D.movimientos.length);
+    if (!rows.length) { setMsg('movimientos', q?'sin resultados':'sin movimientos en el período'); return; }
+    showTbl('movimientos');
+    $('tb-movimientos').innerHTML = rows.map(r => {
+      const cls = r.cantidad<0?'neg':'pos';
+      return `<tr class="dr">
+        <td style="font-variant-numeric:tabular-nums">${esc(r.fecha)}</td>
+        <td style="font-variant-numeric:tabular-nums;color:var(--bd)">${esc(r.hora)}</td>
+        <td class="sku">${esc(r.sku)}</td>
+        <td>${esc(r.name)}</td>
+        <td><span class="bx ${r.tipo==='entrada'?'b-in':'b-out'}">${esc(r.tipo)}</span></td>
+        <td><span class="bx ${reasonBadge(r.reason)}">${esc(r.reason)}</span></td>
+        <td class="r ${cls}">${r.cantidad>0?'+'+r.cantidad:r.cantidad}</td>
+        <td class="r" style="font-weight:500">${r.balance}</td>
+      </tr>`;
+    }).join('');
+  }
+}
+
+fetchData();
+</script>
+</body>
+</html>
