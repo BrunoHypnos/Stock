@@ -282,8 +282,8 @@ if (sessionStorage.getItem('hx_auth') === '1') {
 }
 
 // ── dashboard ─────────────────────────────────────────────────
-const GAS = 'https://script.google.com/macros/s/AKfycby5sOSquEJw00TokiPTHBGJTlnbwBlT8uVBVD3rVKBrHdYRd0ZdB9jFJ0ByKfbUc5Ad/exec';
-let D = null, days = 30;
+const GAS = 'https://script.google.com/macros/s/AKfycbxbBJTJeOgj9m7wiiv-_Avo4fzaQmASMBdpjIBD8jSLt3k5IuqnrPn9o_cpdtkexiLM/exec';
+let D = null, Dmov = null, days = 30;
 
 const esc = s => String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const $ = id => document.getElementById(id);
@@ -308,12 +308,19 @@ document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () =>
   document.querySelectorAll('.panel').forEach(x=>x.classList.remove('on'));
   b.classList.add('on');
   $('panel-'+b.dataset.tab).classList.add('on');
-  if (D) render(b.dataset.tab, $('q-'+b.dataset.tab)?.value||'');
+  if (b.dataset.tab === 'movimientos') {
+    fetchMov();
+  } else if (D) {
+    render(b.dataset.tab, $('q-'+b.dataset.tab)?.value||'');
+  }
 }));
 
 // search
 ['general','quiebres','cambios','movimientos'].forEach(id => {
-  $('q-'+id)?.addEventListener('input', e => { if(D) render(id, e.target.value); });
+  $('q-'+id)?.addEventListener('input', e => {
+    if (id === 'movimientos') { if (Dmov) renderMov(e.target.value); }
+    else if (D) render(id, e.target.value);
+  });
 });
 
 // period
@@ -321,6 +328,7 @@ document.querySelectorAll('.pb').forEach(b => b.addEventListener('click', () => 
   document.querySelectorAll('.pb').forEach(x=>x.classList.remove('on'));
   b.classList.add('on');
   days = parseInt(b.dataset.d);
+  Dmov = null; // reset movimientos cache on period change
   fetchData();
 }));
 
@@ -331,20 +339,60 @@ function toggleX(sku) {
   $('xb-'+sku).textContent = open ? '▲ ocultar' : '▼ ver movimientos';
 }
 
-// fetch
+// fetch principal (snapshot, quiebres, cambios, movBySku)
 function fetchData() {
-  ['general','quiebres','cambios','movimientos'].forEach(id =>
+  ['general','quiebres','cambios'].forEach(id =>
     setMsg(id, '<span class="sp"></span>cargando...'));
+  setMsg('movimientos', 'abre este tab para cargar movimientos');
   fetch(`${GAS}?days=${days}`)
     .then(r=>r.json())
     .then(data => {
-      D = data;
+      D = data; Dmov = null;
       $('hdr-fecha').textContent = data.fecha || '';
-      ['general','quiebres','cambios','movimientos'].forEach(t =>
-        render(t, $('q-'+t)?.value||''));
+      // solo renderizar tabs activos (no movimientos)
+      const activeTab = document.querySelector('.tab.on')?.dataset?.tab;
+      if (!activeTab || activeTab !== 'movimientos') {
+        ['general','quiebres','cambios'].forEach(t => render(t, $('q-'+t)?.value||''));
+      }
     })
-    .catch(() => ['general','quiebres','cambios','movimientos'].forEach(id =>
+    .catch(() => ['general','quiebres','cambios'].forEach(id =>
       setMsg(id, 'error al cargar datos')));
+}
+
+// fetch movimientos (lazy, solo cuando el usuario abre el tab)
+function fetchMov() {
+  if (Dmov) { renderMov($('q-movimientos')?.value||''); return; }
+  setMsg('movimientos', '<span class="sp"></span>cargando movimientos...');
+  fetch(`${GAS}?days=${days}&tab=mov`)
+    .then(r=>r.json())
+    .then(data => {
+      Dmov = data.movimientos || [];
+      renderMov($('q-movimientos')?.value||'');
+    })
+    .catch(() => setMsg('movimientos', 'error al cargar movimientos'));
+}
+
+function renderMov(q) {
+  q = (q||'').toLowerCase().trim();
+  const rows = Dmov.filter(r =>
+    !q || r.sku.toLowerCase().includes(q) || (r.name||'').toLowerCase().includes(q) ||
+    r.tipo.toLowerCase().includes(q) || (r.reason||'').toLowerCase().includes(q));
+  setRc('movimientos', rows.length, Dmov.length);
+  if (!rows.length) { setMsg('movimientos', q?'sin resultados':'sin movimientos en el período'); return; }
+  showTbl('movimientos');
+  $('tb-movimientos').innerHTML = rows.map(r => {
+    const cls = r.cantidad<0?'neg':'pos';
+    return `<tr class="dr">
+      <td style="font-variant-numeric:tabular-nums">${esc(r.fecha)}</td>
+      <td style="font-variant-numeric:tabular-nums;color:var(--bd)">${esc(r.hora)}</td>
+      <td class="sku">${esc(r.sku)}</td>
+      <td>${esc(r.name)}</td>
+      <td><span class="bx ${r.tipo==='entrada'?'b-in':'b-out'}">${esc(r.tipo)}</span></td>
+      <td><span class="bx ${reasonBadge(r.reason)}">${esc(r.reason)}</span></td>
+      <td class="r ${cls}">${r.cantidad>0?'+'+r.cantidad:r.cantidad}</td>
+      <td class="r" style="font-weight:500">${r.balance}</td>
+    </tr>`;
+  }).join('');
 }
 
 // render
@@ -426,25 +474,7 @@ function render(tab, q) {
   }
 
   if (tab === 'movimientos') {
-    const rows = D.movimientos.filter(r =>
-      !q || r.sku.toLowerCase().includes(q) || (r.name||'').toLowerCase().includes(q) ||
-      r.tipo.toLowerCase().includes(q) || (r.reason||'').toLowerCase().includes(q));
-    setRc('movimientos', rows.length, D.movimientos.length);
-    if (!rows.length) { setMsg('movimientos', q?'sin resultados':'sin movimientos en el período'); return; }
-    showTbl('movimientos');
-    $('tb-movimientos').innerHTML = rows.map(r => {
-      const cls = r.cantidad<0?'neg':'pos';
-      return `<tr class="dr">
-        <td style="font-variant-numeric:tabular-nums">${esc(r.fecha)}</td>
-        <td style="font-variant-numeric:tabular-nums;color:var(--bd)">${esc(r.hora)}</td>
-        <td class="sku">${esc(r.sku)}</td>
-        <td>${esc(r.name)}</td>
-        <td><span class="bx ${r.tipo==='entrada'?'b-in':'b-out'}">${esc(r.tipo)}</span></td>
-        <td><span class="bx ${reasonBadge(r.reason)}">${esc(r.reason)}</span></td>
-        <td class="r ${cls}">${r.cantidad>0?'+'+r.cantidad:r.cantidad}</td>
-        <td class="r" style="font-weight:500">${r.balance}</td>
-      </tr>`;
-    }).join('');
+    fetchMov();
   }
 }
 
