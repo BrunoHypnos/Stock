@@ -203,6 +203,11 @@ tr.gh td { background:var(--bl); padding:8px 0 4px; font-size:10px; font-weight:
 
   <div class="panel" id="panel-cambios">
     <div class="tb">
+      <input type="date" class="si" id="cmp-from" style="width:150px;flex:none">
+      <span style="color:var(--bd)">→</span>
+      <input type="date" class="si" id="cmp-to" style="width:150px;flex:none">
+      <button class="pb" id="cmp-go">comparar</button>
+      <button class="pb" id="cmp-reset">ayer vs hoy</button>
       <input class="si" id="q-cambios" placeholder="buscar…">
       <span class="rc" id="rc-cambios"></span>
     </div>
@@ -213,8 +218,8 @@ tr.gh td { background:var(--bl); padding:8px 0 4px; font-size:10px; font-weight:
           <th style="width:110px">Categoría</th>
           <th style="width:90px">SKU</th>
           <th>Producto</th>
-          <th class="r" style="width:70px">Ayer</th>
-          <th class="r" style="width:70px">Hoy</th>
+          <th class="r" id="th-cambios-ayer" style="width:90px">Ayer</th>
+          <th class="r" id="th-cambios-hoy" style="width:90px">Hoy</th>
           <th class="r" style="width:80px">Cambio</th>
         </tr></thead>
         <tbody id="tb-cambios"></tbody>
@@ -234,6 +239,7 @@ tr.gh td { background:var(--bl); padding:8px 0 4px; font-size:10px; font-weight:
       </div>
       <input class="si" id="q-movimientos" placeholder="buscar SKU, producto o tipo…">
       <span class="rc" id="rc-movimientos"></span>
+      <span class="rc" id="cap-movimientos" style="color:var(--bd)"></span>
     </div>
     <div class="tw">
       <div class="st" id="msg-movimientos"><span class="sp"></span>cargando...</div>
@@ -282,8 +288,8 @@ if (sessionStorage.getItem('hx_auth') === '1') {
 }
 
 // ── dashboard ─────────────────────────────────────────────────
-const GAS = 'https://script.google.com/macros/s/AKfycbyBbbyG6qnQH5Se_Ywtec6VEeNX9WpzmB1-iJLlrU6_TgVeHK8xAZ9T4ZXfflZKb99r/exec';
-let D = null, Dmov = null, days = 30;
+const GAS = 'https://script.google.com/macros/s/AKfycbwH8Vgp7NwBFLq0ZZdszcYHVmfQW7nOXd1KVK-HmCIfdjKxj8YYZK12MqjMlkhqb_6o/exec';
+let D = null, Dmov = null, Dcmp = null, days = 30;
 
 const esc = s => String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const $ = id => document.getElementById(id);
@@ -323,14 +329,37 @@ document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () =>
   });
 });
 
-// period
-document.querySelectorAll('.pb').forEach(b => b.addEventListener('click', () => {
-  document.querySelectorAll('.pb').forEach(x=>x.classList.remove('on'));
+// period (solo los pills del tab movimientos)
+document.querySelectorAll('#pp .pb').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('#pp .pb').forEach(x=>x.classList.remove('on'));
   b.classList.add('on');
   days = parseInt(b.dataset.d);
   Dmov = null; // reset movimientos cache on period change
   fetchData();
 }));
+
+// comparar balance entre 2 fechas (tab cambios)
+function _dStr(ms){ const d=new Date(ms); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+(function(){ const f=$('cmp-from'), t=$('cmp-to');
+  if(f&&!f.value) f.value=_dStr(Date.now()-86400000);
+  if(t&&!t.value) t.value=_dStr(Date.now());
+})();
+$('cmp-go')?.addEventListener('click', () => {
+  const from=$('cmp-from').value, to=$('cmp-to').value;
+  if(!from||!to){ setMsg('cambios','elige ambas fechas'); return; }
+  if(from>to){ setMsg('cambios','la fecha inicial debe ser anterior o igual a la final'); return; }
+  setMsg('cambios', `<span class="sp"></span>comparando ${from} → ${to}...`);
+  fetch(`${GAS}?cmpFrom=${from}&cmpTo=${to}`)
+    .then(r=>r.json())
+    .then(data => { Dcmp = data; render('cambios', $('q-cambios')?.value||''); })
+    .catch(()=> setMsg('cambios','error al comparar'));
+});
+$('cmp-reset')?.addEventListener('click', () => {
+  Dcmp = null;
+  $('cmp-from').value=_dStr(Date.now()-86400000);
+  $('cmp-to').value=_dStr(Date.now());
+  if(D) render('cambios', $('q-cambios')?.value||'');
+});
 
 // expand
 function toggleX(sku) {
@@ -378,9 +407,17 @@ function renderMov(q) {
     !q || r.sku.toLowerCase().includes(q) || (r.name||'').toLowerCase().includes(q) ||
     r.tipo.toLowerCase().includes(q) || (r.reason||'').toLowerCase().includes(q));
   setRc('movimientos', rows.length, Dmov.length);
+  { const cn=$('cap-movimientos'); if(cn) cn.textContent=''; }
   if (!rows.length) { setMsg('movimientos', q?'sin resultados':'sin movimientos en el período'); return; }
   showTbl('movimientos');
-  $('tb-movimientos').innerHTML = rows.map(r => {
+  const CAP = 3000;
+  const capped = rows.length > CAP;
+  const view = capped ? rows.slice(0, CAP) : rows;
+  const capNote = $('cap-movimientos');
+  if (capNote) capNote.textContent = capped
+    ? `mostrando ${CAP} de ${rows.length} — afina la búsqueda para ver el resto`
+    : '';
+  $('tb-movimientos').innerHTML = view.map(r => {
     const cls = r.cantidad<0?'neg':'pos';
     return `<tr class="dr">
       <td style="font-variant-numeric:tabular-nums">${esc(r.fecha)}</td>
@@ -454,10 +491,16 @@ function render(tab, q) {
   }
 
   if (tab === 'cambios') {
-    const rows = D.cambios.filter(r =>
+    const src = Dcmp || D;
+    const list = src.cambios || [];
+    const rows = list.filter(r =>
       !q || r.sku.toLowerCase().includes(q) || r.name.toLowerCase().includes(q));
-    setRc('cambios', rows.length, D.cambios.length);
-    if (!rows.length) { setMsg('cambios', q?'sin resultados':`sin cambios vs ${D.fechaAnterior||'ayer'}`); return; }
+    setRc('cambios', rows.length, list.length);
+    const _sub = d => `<span style="font-weight:400;font-size:10px;color:var(--bd)">${esc(d||'')}</span>`;
+    const _thA = $('th-cambios-ayer'), _thH = $('th-cambios-hoy');
+    if (_thA) _thA.innerHTML = 'Antes<br>' + _sub(src.fechaAnterior);
+    if (_thH) _thH.innerHTML = 'Después<br>' + _sub(src.fecha);
+    if (!rows.length) { setMsg('cambios', q?'sin resultados':`sin cambios entre ${src.fechaAnterior||'ayer'} y ${src.fecha||'hoy'}`); return; }
     showTbl('cambios');
     $('tb-cambios').innerHTML = rows.map(r => {
       const cls = r.diff>0?'pos':'neg';
