@@ -171,6 +171,7 @@ tr.gh td { background:var(--bl); padding:8px 0 4px; font-size:10px; font-weight:
       <button class="pb" id="snap-go">ver stock a esa fecha/hora</button>
       <button class="pb" id="snap-now" style="display:none">← stock actual</button>
       <span class="rc" id="snap-note" style="color:#b45309"></span>
+      <button class="pb" id="stock-csv">⬇ Excel</button>
       <button class="pb" id="hidden-toggle">ocultos (0)</button>
       <span class="rc" id="rc-general"></span>
     </div>
@@ -311,7 +312,7 @@ if (sessionStorage.getItem('hx_auth') === '1') {
 const GAS = 'https://script.google.com/macros/s/AKfycbyojJOn7UFlayuTDduZVYI0CpDVMshFislXnFzlrVvjx-2QXdwI7Us5pPkgiBZpKGrh/exec';
 let D = null, Dmov = null, Dcmp = null, days = 30;
 let lowTh = 10, movTipo = '', movReason = '', _movRows = [];
-let snapAt = null, Dsnap = null;
+let snapAt = null, Dsnap = null, _genRows = [];
 
 const esc = s => String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const $ = id => document.getElementById(id);
@@ -477,6 +478,14 @@ $('snap-now')?.addEventListener('click', ()=>{
   const b=$('snap-now'); if(b) b.style.display='none';
   if(D) render('general', $('q-general')?.value||'');
 });
+$('stock-csv')?.addEventListener('click', ()=>{
+  if(!_genRows.length) return;
+  const when = snapAt ? String(snapAt) : ((D&&D.fecha) ? D.fecha : new Date().toISOString().slice(0,10));
+  const fn = 'stock_'+String(when).replace(/[: ]/g,'-').replace('T','_')+'.csv';
+  exportCsv(fn,
+    ['categoria','subcategoria','sku','producto','stock'],
+    _genRows.map(r=>[r.cat, r.subcat, r.sku, r.name, r.stock]));
+});
 
 // comparar balance entre 2 fechas (tab cambios)
 function _dStr(ms){ const d=new Date(ms); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
@@ -597,6 +606,7 @@ function render(tab, q) {
     const rows = srcSnap.filter(r =>
       (!q || r.sku.toLowerCase().includes(q) || r.name.toLowerCase().includes(q) ||
       (r.cat||'').toLowerCase().includes(q)) && !isHidden(r.sku, r.cat));
+    _genRows = rows; // para exportar
     setRc('general', rows.length, srcSnap.length);
     if (!rows.length) { setMsg('general', q?'sin resultados':'sin datos'); return; }
     showTbl('general');
