@@ -167,8 +167,14 @@ tr.gh td { background:var(--bl); padding:8px 0 4px; font-size:10px; font-weight:
       <label style="font-size:11px;color:var(--bd)">resaltar stock ≤
         <input type="number" id="low-th" value="10" min="0" class="si" style="width:60px;flex:none">
       </label>
+      <input type="datetime-local" class="si" id="snap-dt" style="width:190px;flex:none">
+      <button class="pb" id="snap-go">ver stock a esa fecha/hora</button>
+      <button class="pb" id="snap-now" style="display:none">← stock actual</button>
+      <span class="rc" id="snap-note" style="color:#b45309"></span>
+      <button class="pb" id="hidden-toggle">ocultos (0)</button>
       <span class="rc" id="rc-general"></span>
     </div>
+    <div id="hidden-panel" style="display:none;margin:-2px 0 10px"></div>
     <div class="tw">
       <div class="st" id="msg-general"><span class="sp"></span>cargando...</div>
       <table id="tbl-general" style="display:none">
@@ -302,9 +308,10 @@ if (sessionStorage.getItem('hx_auth') === '1') {
 }
 
 // ── dashboard ─────────────────────────────────────────────────
-const GAS = 'https://script.google.com/macros/s/AKfycbyEjkCIcto2mGlm5fMVXDOJ_TTyh2lJoilOFz11UlYsX5vi7IzlynNs9jIqskNCM_OA/exec';
+const GAS = 'https://script.google.com/macros/s/AKfycbyojJOn7UFlayuTDduZVYI0CpDVMshFislXnFzlrVvjx-2QXdwI7Us5pPkgiBZpKGrh/exec';
 let D = null, Dmov = null, Dcmp = null, days = 30;
 let lowTh = 10, movTipo = '', movReason = '', _movRows = [];
+let snapAt = null, Dsnap = null;
 
 const esc = s => String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const $ = id => document.getElementById(id);
@@ -418,6 +425,59 @@ $('mov-csv')?.addEventListener('click', ()=>{
     _movRows.map(r=>[r.fecha,r.hora,r.sku,r.name,r.tipo,r.reason,r.cantidad,r.balance,r.order_id]));
 });
 
+// ── ocultar SKUs / categorías (persistente en el navegador) ──
+function _lsGet(k){ try{ return JSON.parse(localStorage.getItem(k)||'[]'); }catch(e){ return []; } }
+let hiddenSkus = new Set(_lsGet('hx_hidden_skus'));
+let hiddenCats = new Set(_lsGet('hx_hidden_cats'));
+let _skuCat = {};
+const jsq = s => String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+function saveHidden(){ try{ localStorage.setItem('hx_hidden_skus', JSON.stringify([...hiddenSkus])); localStorage.setItem('hx_hidden_cats', JSON.stringify([...hiddenCats])); }catch(e){} }
+function catOf(sku){ return _skuCat[sku]||''; }
+function isHidden(sku,cat){ return hiddenSkus.has(sku) || (!!cat && hiddenCats.has(cat)); }
+function hideSku(sku){ hiddenSkus.add(sku); saveHidden(); rerenderAll(); }
+function hideCat(cat){ hiddenCats.add(cat); saveHidden(); rerenderAll(); }
+function unhideSku(sku){ hiddenSkus.delete(sku); saveHidden(); rerenderAll(); }
+function unhideCat(cat){ hiddenCats.delete(cat); saveHidden(); rerenderAll(); }
+function rerenderAll(){
+  renderHiddenPanel();
+  if(D){ render('general',$('q-general')?.value||''); render('quiebres',$('q-quiebres')?.value||''); render('cambios',$('q-cambios')?.value||''); }
+  if(Dmov) renderMov($('q-movimientos')?.value||'');
+}
+function renderHiddenPanel(){
+  const n=hiddenSkus.size+hiddenCats.size;
+  const btn=$('hidden-toggle'); if(btn) btn.textContent=`ocultos (${n})`;
+  const p=$('hidden-panel'); if(!p) return;
+  if(!n){ p.innerHTML='<span style="font-size:11px;color:var(--bd)">no hay SKUs ni categorías ocultas</span>'; return; }
+  const chip=(txt,fn)=>`<span style="display:inline-flex;align-items:center;gap:6px;border:1px solid var(--g);border-radius:6px;padding:2px 8px;margin:0 6px 6px 0;font-size:11px">${esc(txt)} <button class="xbtn" style="color:#b91c1c" onclick="${fn}">✕</button></span>`;
+  p.innerHTML = [...hiddenCats].map(c=>chip('categoría: '+c, `unhideCat('${jsq(c)}')`)).join('')
+              + [...hiddenSkus].map(s=>chip(s, `unhideSku('${jsq(s)}')`)).join('');
+}
+$('hidden-toggle')?.addEventListener('click', ()=>{ const p=$('hidden-panel'); if(!p) return; const show=p.style.display==='none'; p.style.display=show?'':'none'; if(show) renderHiddenPanel(); });
+renderHiddenPanel();
+
+// ── ver stock a una fecha/hora específica (todos los SKU de la maestra) ──
+(function(){ const el=$('snap-dt'); if(el&&!el.value){ const d=new Date(), p=n=>String(n).padStart(2,'0');
+  el.value=`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; } })();
+$('snap-go')?.addEventListener('click', ()=>{
+  const v=$('snap-dt')?.value; if(!v) return;
+  setMsg('general', `<span class="sp"></span>calculando stock al ${v.replace('T',' ')}…`);
+  fetch(`${GAS}?snapAt=${encodeURIComponent(v)}`)
+    .then(r=>r.json())
+    .then(data=>{
+      Dsnap = data.snapshot || []; snapAt = data.at || v;
+      const n=$('snap-note'); if(n) n.textContent = 'stock al '+(data.at||v);
+      const b=$('snap-now'); if(b) b.style.display='';
+      render('general', $('q-general')?.value||'');
+    })
+    .catch(()=> setMsg('general','error al calcular el stock a esa fecha/hora'));
+});
+$('snap-now')?.addEventListener('click', ()=>{
+  snapAt=null; Dsnap=null;
+  const n=$('snap-note'); if(n) n.textContent='';
+  const b=$('snap-now'); if(b) b.style.display='none';
+  if(D) render('general', $('q-general')?.value||'');
+});
+
 // comparar balance entre 2 fechas (tab cambios)
 function _dStr(ms){ const d=new Date(ms); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 (function(){ const f=$('cmp-from'), t=$('cmp-to');
@@ -464,6 +524,8 @@ function fetchData() {
       D = data; Dmov = null;
       $('hdr-fecha').textContent = data.fecha || '';
       updateSync(data.lastSync);
+      _skuCat = {}; (data.snapshot||[]).forEach(s => { _skuCat[s.sku] = s.cat; });
+      renderHiddenPanel();
       // solo renderizar tabs activos (no movimientos)
       const activeTab = document.querySelector('.tab.on')?.dataset?.tab;
       if (!activeTab || activeTab !== 'movimientos') {
@@ -491,6 +553,7 @@ function fetchMov() {
 function renderMov(q) {
   q = (q||'').toLowerCase().trim();
   const rows = Dmov.filter(r => {
+    if (isHidden(r.sku, catOf(r.sku))) return false;
     if (movTipo && r.tipo !== movTipo) return false;
     if (movReason && r.reason !== movReason) return false;
     if (!q) return true;
@@ -530,16 +593,17 @@ function render(tab, q) {
   q = (q||'').toLowerCase().trim();
 
   if (tab === 'general') {
-    const rows = D.snapshot.filter(r =>
-      !q || r.sku.toLowerCase().includes(q) || r.name.toLowerCase().includes(q) ||
-      (r.cat||'').toLowerCase().includes(q));
-    setRc('general', rows.length, D.snapshot.length);
+    const srcSnap = (snapAt && Dsnap) ? Dsnap : (D.snapshot || []);
+    const rows = srcSnap.filter(r =>
+      (!q || r.sku.toLowerCase().includes(q) || r.name.toLowerCase().includes(q) ||
+      (r.cat||'').toLowerCase().includes(q)) && !isHidden(r.sku, r.cat));
+    setRc('general', rows.length, srcSnap.length);
     if (!rows.length) { setMsg('general', q?'sin resultados':'sin datos'); return; }
     showTbl('general');
     let lastCat = null;
     $('tb-general').innerHTML = rows.map(r => {
       const catRow = r.cat !== lastCat
-        ? `<tr class="gh"><td colspan="5" style="padding-left:0">${esc(lastCat=r.cat)||'sin categoría'}</td></tr>` : '';
+        ? `<tr class="gh"><td colspan="5" style="padding-left:0">${esc(lastCat=r.cat)||'sin categoría'}<button class="xbtn" title="ocultar categoría" onclick="hideCat('${jsq(r.cat)}')" style="margin-left:8px;font-size:10px">ocultar categoría</button></td></tr>` : '';
       const movs = D.movBySku?.[r.sku] || [];
       const inner = movs.length
         ? `<table><thead><tr><th>Fecha</th><th>Hora</th><th>Tipo</th><th>Razón</th><th class="r">Cant.</th><th class="r">Balance</th></tr></thead><tbody>`
@@ -552,13 +616,16 @@ function render(tab, q) {
           + `</tbody></table>`
         : `<span style="color:var(--bd);font-size:11px">sin movimientos en el período</span>`;
 
-      const stStyle = r.stock<=0 ? ';color:#b91c1c' : (r.stock<=lowTh ? ';color:#b45309' : '');
+      const stStyle = r.sinMov ? ';color:var(--bd)' : (r.stock<=0 ? ';color:#b91c1c' : (r.stock<=lowTh ? ';color:#b45309' : ''));
       return catRow + `<tr class="dr">
         <td class="cat">${esc(r.subcat||r.cat||'')}</td>
         <td class="sku">${esc(r.sku)}</td>
         <td>${esc(r.name)}</td>
         <td class="r" style="font-weight:500${stStyle}">${r.stock}</td>
-        <td><button class="xbtn" id="xb-${esc(r.sku)}" onclick="toggleX('${esc(r.sku)}')">▼ ver movimientos</button></td>
+        <td>
+          <button class="xbtn" id="xb-${esc(r.sku)}" onclick="toggleX('${esc(r.sku)}')">▼ ver movimientos</button>
+          <button class="xbtn" title="ocultar SKU" onclick="event.stopPropagation();hideSku('${jsq(r.sku)}')" style="color:#b91c1c;margin-left:8px">✕</button>
+        </td>
       </tr>
       <tr class="xrow" id="xr-${esc(r.sku)}">
         <td colspan="5"><div class="xi">${inner}</div></td>
@@ -569,7 +636,7 @@ function render(tab, q) {
 
   if (tab === 'quiebres') {
     const rows = D.quiebres.filter(r =>
-      !q || r.sku.toLowerCase().includes(q) || r.name.toLowerCase().includes(q));
+      (!q || r.sku.toLowerCase().includes(q) || r.name.toLowerCase().includes(q)) && !isHidden(r.sku, r.cat));
     setRc('quiebres', rows.length, D.quiebres.length);
     if (!rows.length) { setMsg('quiebres', q?'sin resultados':'sin quiebres'); return; }
     showTbl('quiebres');
@@ -588,7 +655,7 @@ function render(tab, q) {
     const src = Dcmp || D;
     const list = src.cambios || [];
     const rows = list.filter(r =>
-      !q || r.sku.toLowerCase().includes(q) || r.name.toLowerCase().includes(q));
+      (!q || r.sku.toLowerCase().includes(q) || r.name.toLowerCase().includes(q)) && !isHidden(r.sku, r.cat));
     setRc('cambios', rows.length, list.length);
     const _sub = d => `<span style="font-weight:400;font-size:10px;color:var(--bd)">${esc(d||'')}</span>`;
     const _thA = $('th-cambios-ayer'), _thH = $('th-cambios-hoy');
