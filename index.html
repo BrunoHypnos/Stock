@@ -240,6 +240,7 @@ tr.gh td { background:var(--bl); padding:8px 0 4px; font-size:10px; font-weight:
       <input class="si" id="q-movimientos" placeholder="buscar SKU, producto o tipo…">
       <span class="rc" id="rc-movimientos"></span>
       <span class="rc" id="cap-movimientos" style="color:var(--bd)"></span>
+      <button class="pb" id="mov-reload" style="margin-left:auto">↻ cargar movimientos</button>
     </div>
     <div class="tw">
       <div class="st" id="msg-movimientos"><span class="sp"></span>cargando...</div>
@@ -336,7 +337,12 @@ document.querySelectorAll('#pp .pb').forEach(b => b.addEventListener('click', ()
   days = parseInt(b.dataset.d);
   Dmov = null; // reset movimientos cache on period change
   fetchData();
+  // si el tab movimientos está activo, recargar de inmediato (no esperar re-apertura)
+  if (document.querySelector('.tab.on')?.dataset?.tab === 'movimientos') fetchMov();
 }));
+
+// recargar movimientos manualmente
+$('mov-reload')?.addEventListener('click', () => { Dmov = null; fetchMov(); });
 
 // comparar balance entre 2 fechas (tab cambios)
 function _dStr(ms){ const d=new Date(ms); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
@@ -366,6 +372,11 @@ function toggleX(sku) {
   const row = $('xr-'+sku); if(!row) return;
   const open = row.classList.toggle('on');
   $('xb-'+sku).textContent = open ? '▲ ocultar' : '▼ ver movimientos';
+}
+function toggleXC(sku) {
+  const row = $('xr-c-'+sku); if(!row) return;
+  const open = row.classList.toggle('on');
+  const b = $('xb-c-'+sku); if(b) b.textContent = open ? '▲' : '▼';
 }
 
 // fetch principal (snapshot, quiebres, cambios, movBySku)
@@ -504,14 +515,26 @@ function render(tab, q) {
     showTbl('cambios');
     $('tb-cambios').innerHTML = rows.map(r => {
       const cls = r.diff>0?'pos':'neg';
-      return `<tr class="dr">
+      const movs = (D && D.movBySku && D.movBySku[r.sku]) || [];
+      const inner = movs.length
+        ? `<table><thead><tr><th>Fecha</th><th>Hora</th><th>Tipo</th><th>Razón</th><th class="r">Cant.</th><th class="r">Balance</th></tr></thead><tbody>`
+          + movs.map(m=>`<tr>
+              <td>${esc(m.fecha)}</td><td>${esc(m.hora)}</td>
+              <td><span class="bx ${m.tipo==='entrada'?'b-in':'b-out'}">${esc(m.tipo)}</span></td>
+              <td><span class="bx ${reasonBadge(m.reason)}">${esc(m.reason)}</span></td>
+              <td class="r ${m.cantidad<0?'neg':'pos'}">${m.cantidad>0?'+'+m.cantidad:m.cantidad}</td>
+              <td class="r">${m.balance}</td></tr>`).join('')
+          + `</tbody></table>`
+        : `<span style="color:var(--bd);font-size:11px">sin movimientos en el período cargado (cambia el período en la pestaña movimientos)</span>`;
+      return `<tr class="dr" style="cursor:pointer" onclick="toggleXC('${esc(r.sku)}')">
         <td class="cat">${esc(r.subcat||r.cat||'')}</td>
         <td class="sku">${esc(r.sku)}</td>
-        <td>${esc(r.name)}</td>
+        <td><span class="xbtn" id="xb-c-${esc(r.sku)}">▼</span> ${esc(r.name)}</td>
         <td class="r" style="color:var(--bd)">${r.prev}</td>
         <td class="r" style="font-weight:500">${r.stock}</td>
         <td class="r ${cls}">${r.diff>0?'+':''}${r.diff}</td>
-      </tr>`;
+      </tr>
+      <tr class="xrow" id="xr-c-${esc(r.sku)}"><td colspan="6"><div class="xi">${inner}</div></td></tr>`;
     }).join('');
     return;
   }
