@@ -140,6 +140,7 @@ tr.gh td { background:var(--bl); padding:8px 0 4px; font-size:10px; font-weight:
     <img src="logo.png" alt="hypnos" class="logo-img">
     <span class="sub">operaciones · stock</span>
     <div class="hdr-r">
+      <span id="hdr-sync"></span>
       <span id="hdr-fecha"></span>
       <button class="btn" onclick="fetchData()">↺ actualizar</button>
     </div>
@@ -240,7 +241,7 @@ tr.gh td { background:var(--bl); padding:8px 0 4px; font-size:10px; font-weight:
       <input class="si" id="q-movimientos" placeholder="buscar SKU, producto o tipo…">
       <span class="rc" id="rc-movimientos"></span>
       <span class="rc" id="cap-movimientos" style="color:var(--bd)"></span>
-      <button class="pb" id="mov-reload" style="margin-left:auto">↻ cargar movimientos</button>
+      <button class="pb" id="mov-reload" style="margin-left:auto">↻ traer nuevos de Starkoms</button>
     </div>
     <div class="tw">
       <div class="st" id="msg-movimientos"><span class="sp"></span>cargando...</div>
@@ -289,7 +290,7 @@ if (sessionStorage.getItem('hx_auth') === '1') {
 }
 
 // ── dashboard ─────────────────────────────────────────────────
-const GAS = 'https://script.google.com/macros/s/AKfycbwH8Vgp7NwBFLq0ZZdszcYHVmfQW7nOXd1KVK-HmCIfdjKxj8YYZK12MqjMlkhqb_6o/exec';
+const GAS = 'https://script.google.com/macros/s/AKfycbyEjkCIcto2mGlm5fMVXDOJ_TTyh2lJoilOFz11UlYsX5vi7IzlynNs9jIqskNCM_OA/exec';
 let D = null, Dmov = null, Dcmp = null, days = 30;
 
 const esc = s => String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -341,8 +342,33 @@ document.querySelectorAll('#pp .pb').forEach(b => b.addEventListener('click', ()
   if (document.querySelector('.tab.on')?.dataset?.tab === 'movimientos') fetchMov();
 }));
 
-// recargar movimientos manualmente
-$('mov-reload')?.addEventListener('click', () => { Dmov = null; fetchMov(); });
+// última actualización (LAST_SYNC → hora Santiago)
+function fmtSync(iso){
+  if(!iso) return '';
+  try{
+    const d=new Date(iso);
+    return 'última sync: '+d.toLocaleString('es-CL',{timeZone:'America/Santiago',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+  }catch(e){ return ''; }
+}
+
+// traer movimientos nuevos desde Starkoms (corre syncMovimientos en el GAS)
+function syncStarkoms(){
+  const btn=$('mov-reload');
+  if(btn){ btn.disabled=true; btn.textContent='sincronizando…'; }
+  setMsg('movimientos','<span class="sp"></span>trayendo movimientos nuevos de Starkoms… puede tardar 1–2 min, no cierres la pestaña');
+  fetch(`${GAS}?action=sync`)
+    .then(r=>r.json())
+    .then(data=>{
+      if(!data.ok){ setMsg('movimientos', data.error||'error al sincronizar'); return; }
+      if(data.lastSync){ const h=$('hdr-sync'); if(h) h.textContent=fmtSync(data.lastSync); }
+      Dmov=null; Dcmp=null;
+      fetchData();   // refresca stock / quiebres / cambios
+      fetchMov();    // recarga movimientos del período actual
+    })
+    .catch(()=> setMsg('movimientos','error al sincronizar con Starkoms (revisa conexión / vuelve a intentar)'))
+    .finally(()=>{ if(btn){ btn.disabled=false; btn.textContent='↻ traer nuevos de Starkoms'; } });
+}
+$('mov-reload')?.addEventListener('click', syncStarkoms);
 
 // comparar balance entre 2 fechas (tab cambios)
 function _dStr(ms){ const d=new Date(ms); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
@@ -389,6 +415,7 @@ function fetchData() {
     .then(data => {
       D = data; Dmov = null;
       $('hdr-fecha').textContent = data.fecha || '';
+      { const h=$('hdr-sync'); if(h) h.textContent = fmtSync(data.lastSync); }
       // solo renderizar tabs activos (no movimientos)
       const activeTab = document.querySelector('.tab.on')?.dataset?.tab;
       if (!activeTab || activeTab !== 'movimientos') {
