@@ -154,6 +154,7 @@ tr.gh td { background:var(--bl); padding:8px 0 4px; font-size:10px; font-weight:
     <button class="tab" data-tab="quiebres">quiebres</button>
     <button class="tab" data-tab="cambios">cambios vs ayer</button>
     <button class="tab" data-tab="movimientos">movimientos</button>
+    <button class="tab" data-tab="autosync">autosync</button>
   </div>
   </div>
 </div>
@@ -203,9 +204,9 @@ tr.gh td { background:var(--bl); padding:8px 0 4px; font-size:10px; font-weight:
           <th style="width:110px">Categoría</th>
           <th style="width:90px">SKU</th>
           <th>Producto</th>
-          <th style="width:110px">Quiebre</th>
           <th class="r" style="width:70px">Antes</th>
           <th class="r" style="width:70px">Ahora</th>
+          <th style="width:140px"></th>
         </tr></thead>
         <tbody id="tb-quiebres"></tbody>
       </table>
@@ -280,6 +281,17 @@ tr.gh td { background:var(--bl); padding:8px 0 4px; font-size:10px; font-weight:
     </div>
   </div>
 
+  <div class="panel" id="panel-autosync">
+    <div class="tb">
+      <input class="si" id="q-autosync" placeholder="buscar SKU o producto…">
+      <span class="rc" id="rc-autosync"></span>
+    </div>
+    <div class="tw">
+      <div class="st" id="msg-autosync"><span class="sp"></span>abre este tab para cargar</div>
+      <div id="tbl-autosync" style="display:none"></div>
+    </div>
+  </div>
+
 </div>
 </div>
 
@@ -309,8 +321,8 @@ if (sessionStorage.getItem('hx_auth') === '1') {
 }
 
 // ── dashboard ─────────────────────────────────────────────────
-const GAS = 'https://script.google.com/macros/s/AKfycbyojJOn7UFlayuTDduZVYI0CpDVMshFislXnFzlrVvjx-2QXdwI7Us5pPkgiBZpKGrh/exec';
-let D = null, Dmov = null, Dcmp = null, days = 30;
+const GAS = 'https://script.google.com/macros/s/AKfycbyqf5xchjJ0Ibu0vXTxE31WQOugER2ymVgj2x-iwZw427YcjLlQtTybYCkfliHNjbLD/exec';
+let D = null, Dmov = null, Dcmp = null, Dauto = null, days = 30;
 let lowTh = 10, movTipo = '', movReason = '', _movRows = [];
 let snapAt = null, Dsnap = null, _genRows = [];
 
@@ -339,15 +351,18 @@ document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () =>
   $('panel-'+b.dataset.tab).classList.add('on');
   if (b.dataset.tab === 'movimientos') {
     fetchMov();
+  } else if (b.dataset.tab === 'autosync') {
+    fetchAuto();
   } else if (D) {
     render(b.dataset.tab, $('q-'+b.dataset.tab)?.value||'');
   }
 }));
 
 // search
-['general','quiebres','cambios','movimientos'].forEach(id => {
+['general','quiebres','cambios','movimientos','autosync'].forEach(id => {
   $('q-'+id)?.addEventListener('input', e => {
     if (id === 'movimientos') { if (Dmov) renderMov(e.target.value); }
+    else if (id === 'autosync') { if (Dauto) renderAuto(e.target.value); }
     else if (D) render(id, e.target.value);
   });
 });
@@ -382,9 +397,10 @@ function syncStarkoms(){
     .then(data=>{
       if(!data.ok){ setMsg('movimientos', data.error||'error al sincronizar'); return; }
       if(data.lastSync) updateSync(data.lastSync);
-      Dmov=null; Dcmp=null;
+      Dmov=null; Dcmp=null; Dauto=null;
       fetchData();   // refresca stock / quiebres / cambios
       fetchMov();    // recarga movimientos del período actual
+      if(document.querySelector('.tab.on')?.dataset?.tab==='autosync') fetchAuto();
     })
     .catch(()=> setMsg('movimientos','error al sincronizar con Starkoms (revisa conexión / vuelve a intentar)'))
     .finally(()=>{ if(btn){ btn.disabled=false; btn.textContent='↻ traer nuevos de Starkoms'; } });
@@ -443,6 +459,7 @@ function rerenderAll(){
   renderHiddenPanel();
   if(D){ render('general',$('q-general')?.value||''); render('quiebres',$('q-quiebres')?.value||''); render('cambios',$('q-cambios')?.value||''); }
   if(Dmov) renderMov($('q-movimientos')?.value||'');
+  if(Dauto) renderAuto($('q-autosync')?.value||'');
 }
 function renderHiddenPanel(){
   const n=hiddenSkus.size+hiddenCats.size;
@@ -521,6 +538,44 @@ function toggleXC(sku) {
   const open = row.classList.toggle('on');
   const b = $('xb-c-'+sku); if(b) b.textContent = open ? '▲' : '▼';
 }
+function toggleXQ(sku) {
+  const row = $('xr-q-'+sku); if(!row) return;
+  const open = row.classList.toggle('on');
+  const b = $('xb-q-'+sku); if(b) b.textContent = open ? '▲ ocultar' : '▼ ver movimientos';
+}
+
+// tabla interna de movimientos (reutilizable)
+function movInner(movs){
+  if(!movs || !movs.length) return `<span style="color:var(--bd);font-size:11px">sin movimientos en el período</span>`;
+  return `<table><thead><tr><th>Fecha</th><th>Hora</th><th>Tipo</th><th>Razón</th><th class="r">Cant.</th><th class="r">Balance</th></tr></thead><tbody>`
+    + movs.map(m=>`<tr>
+        <td>${esc(m.fecha)}</td><td>${esc(m.hora)}</td>
+        <td><span class="bx ${m.tipo==='entrada'?'b-in':'b-out'}">${esc(m.tipo)}</span></td>
+        <td><span class="bx ${reasonBadge(m.reason)}">${esc(m.reason)}</span></td>
+        <td class="r ${m.cantidad<0?'neg':'pos'}">${m.cantidad>0?'+'+m.cantidad:m.cantidad}</td>
+        <td class="r">${m.balance}</td></tr>`).join('')
+    + `</tbody></table>`;
+}
+// etiqueta de semana (lunes–domingo) y de día
+const _MESES=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+function weekOf(ds){
+  const p=ds.split('-'); const dt=new Date(Date.UTC(+p[0],+p[1]-1,+p[2]));
+  const dow=(dt.getUTCDay()+6)%7; const mon=new Date(dt); mon.setUTCDate(dt.getUTCDate()-dow);
+  const sun=new Date(mon); sun.setUTCDate(mon.getUTCDate()+6);
+  const thu=new Date(mon); thu.setUTCDate(mon.getUTCDate()+3);       // jueves de la semana (ISO)
+  const isoYear=thu.getUTCFullYear();
+  const firstThu=new Date(Date.UTC(isoYear,0,4));
+  firstThu.setUTCDate(firstThu.getUTCDate()-((firstThu.getUTCDay()+6)%7)+3);
+  const wnum=1+Math.round((thu-firstThu)/(7*86400000));
+  const f=x=>x.getUTCDate()+' '+_MESES[x.getUTCMonth()];
+  return {key:mon.toISOString().slice(0,10), label:`${isoYear} · Semana ${wnum} (${f(mon)}–${f(sun)})`};
+}
+function dayLabel(ds,n){
+  const suf=` · ${n} SKU${n>1?'s':''}`;
+  if(ds==='sin fecha') return 'sin fecha'+suf;
+  let rel=''; if(D){ if(ds===D.fecha) rel=' (hoy)'; else if(ds===D.fechaAnterior) rel=' (ayer)'; }
+  const p=ds.split('-'); return `${p[2]}/${p[1]}/${p[0]}${rel}${suf}`;
+}
 
 // fetch principal (snapshot, quiebres, cambios, movBySku)
 function fetchData() {
@@ -557,6 +612,55 @@ function fetchMov() {
       renderMov($('q-movimientos')?.value||'');
     })
     .catch(() => setMsg('movimientos', 'error al cargar movimientos'));
+}
+
+// fetch autosync (lazy)
+function fetchAuto() {
+  if (Dauto) { renderAuto($('q-autosync')?.value||''); return; }
+  setMsg('autosync', '<span class="sp"></span>cargando autosync…');
+  fetch(`${GAS}?tab=autosync`)
+    .then(r=>r.json())
+    .then(data => { Dauto = data.autosync || []; renderAuto($('q-autosync')?.value||''); })
+    .catch(() => setMsg('autosync', 'error al cargar autosync'));
+}
+function renderAuto(q) {
+  q = (q||'').toLowerCase().trim();
+  if (!Dauto) return;
+  // filtrar por búsqueda/ocultos y recomputar totales de cada semana
+  const weeks = Dauto.map(w => {
+    const skus = w.skus.filter(s => !isHidden(s.sku, s.cat) &&
+      (!q || s.sku.toLowerCase().includes(q) || (s.name||'').toLowerCase().includes(q)));
+    let cin=0,cout=0,uin=0,uout=0;
+    skus.forEach(s=>{ cin+=s.countIn; cout+=s.countOut; uin+=s.unitsIn; uout+=s.unitsOut; });
+    return { ...w, skus, countIn:cin, countOut:cout, unitsIn:uin, unitsOut:uout, net:uin-uout };
+  }).filter(w => w.skus.length);
+  setRc('autosync', weeks.length, Dauto.length);
+  if (!weeks.length) { setMsg('autosync', q?'sin resultados':'sin movimientos autosync'); return; }
+  showTbl('autosync');
+  const net = n => n===0 ? `<span style="color:var(--bd)">0</span>`
+    : `<span style="color:${n>0?'#15803d':'#b91c1c'};font-weight:600">${n>0?'+':''}${n}</span>`;
+  $('tbl-autosync').innerHTML = weeks.map(w => {
+    const wk = weekOf(w.week);
+    const skuRows = w.skus.map(s => `<tr>
+        <td class="sku">${esc(s.sku)}</td>
+        <td>${esc(s.name)}</td>
+        <td class="r" style="color:#15803d">${s.countIn?('+'+s.unitsIn+' ('+s.countIn+')'):'—'}</td>
+        <td class="r" style="color:#b91c1c">${s.countOut?('−'+s.unitsOut+' ('+s.countOut+')'):'—'}</td>
+        <td class="r">${net(s.net)}</td>
+      </tr>`).join('');
+    return `<div style="border:1px solid var(--g);border-radius:10px;padding:12px 14px;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:8px">
+        <strong style="color:var(--cap)">${esc(wk.label)}</strong>
+        <span style="font-size:12px;color:#15803d">ingresos: ${w.countIn} (+${w.unitsIn} u)</span>
+        <span style="font-size:12px;color:#b91c1c">salidas: ${w.countOut} (−${w.unitsOut} u)</span>
+        <span style="font-size:12px">neto: ${net(w.net)}</span>
+      </div>
+      <table><thead><tr><th style="width:90px">SKU</th><th>Producto</th>
+        <th class="r" style="width:110px">Ingresos</th><th class="r" style="width:110px">Salidas</th>
+        <th class="r" style="width:70px">Neto</th></tr></thead>
+        <tbody>${skuRows}</tbody></table>
+    </div>`;
+  }).join('');
 }
 
 function renderMov(q) {
@@ -650,14 +754,29 @@ function render(tab, q) {
     setRc('quiebres', rows.length, D.quiebres.length);
     if (!rows.length) { setMsg('quiebres', q?'sin resultados':'sin quiebres'); return; }
     showTbl('quiebres');
-    $('tb-quiebres').innerHTML = rows.map(r => `<tr class="dr">
-      <td class="cat">${esc(r.subcat||r.cat||'')}</td>
-      <td class="sku">${esc(r.sku)}</td>
-      <td>${esc(r.name)}</td>
-      <td style="font-size:12px;color:var(--bd)">${esc(r.fechaQuiebre||'—')}</td>
-      <td class="r" style="color:var(--bd)">${r.stockAntesQuiebre??'—'}</td>
-      <td class="r"><span class="bx b-sin">0</span></td>
-    </tr>`).join('');
+    const byDay = {};
+    rows.forEach(r => { const d=(r.fechaQuiebre||'').slice(0,10)||'sin fecha'; (byDay[d]=byDay[d]||[]).push(r); });
+    const dias = Object.keys(byDay).sort().reverse();
+    let html='', lastWk=null;
+    dias.forEach(d => {
+      const wk = d==='sin fecha' ? {key:'zzz', label:'Sin fecha'} : weekOf(d);
+      if (wk.key!==lastWk){ lastWk=wk.key; html += `<tr class="gh"><td colspan="6" style="padding-left:0;font-weight:600;color:var(--cap)">${esc(wk.label)}</td></tr>`; }
+      html += `<tr><td colspan="6" style="padding:6px 0 2px;font-size:11px;color:var(--bd);border:none">${esc(dayLabel(d, byDay[d].length))}</td></tr>`;
+      byDay[d].sort((a,b)=>a.sku.localeCompare(b.sku)).forEach(r => {
+        const movs = (D.movBySku && D.movBySku[r.sku]) || [];
+        const inner = movInner(movs);
+        html += `<tr class="dr">
+          <td class="cat">${esc(r.subcat||r.cat||'')}</td>
+          <td class="sku">${esc(r.sku)}</td>
+          <td>${esc(r.name)}</td>
+          <td class="r" style="color:var(--bd)">${r.stockAntesQuiebre??'—'}</td>
+          <td class="r"><span class="bx b-sin">0</span></td>
+          <td><button class="xbtn" id="xb-q-${esc(r.sku)}" onclick="toggleXQ('${esc(r.sku)}')">▼ ver movimientos</button></td>
+        </tr>
+        <tr class="xrow" id="xr-q-${esc(r.sku)}"><td colspan="6"><div class="xi">${inner}</div></td></tr>`;
+      });
+    });
+    $('tb-quiebres').innerHTML = html;
     return;
   }
 
